@@ -1,11 +1,12 @@
 import Phaser from 'phaser';
 import { PLAYER_CONFIG, COLORS, DEPTHS, getTileSize } from '../config/GameConfig';
 import { GameMap } from '../map/GameMap';
+import { VirtualJoystick } from '../ui/VirtualJoystick';
 
 /**
- * プレイヤーキャラクタークラス
+ * プレイヤーキャラクタークラス（ボンバーマン風）
  */
-export class Player extends Phaser.GameObjects.Rectangle {
+export class Player extends Phaser.GameObjects.Container {
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasdKeys!: {
     up: Phaser.Input.Keyboard.Key;
@@ -13,25 +14,35 @@ export class Player extends Phaser.GameObjects.Rectangle {
     left: Phaser.Input.Keyboard.Key;
     right: Phaser.Input.Keyboard.Key;
   };
-  // private spaceKey!: Phaser.Input.Keyboard.Key; // 爆弾設置用（TICKET-006で実装）
+  private spaceKey!: Phaser.Input.Keyboard.Key;
   private gameMap: GameMap;
   private tileSize: number;
+  private graphics: Phaser.GameObjects.Graphics;
+  private joystick: VirtualJoystick | null = null;
 
   // ステータス
   public speed: number;
   public bombCount: number;
   public bombRange: number;
-  public placedBombs: number; // 現在設置されている爆弾数
+  public placedBombs: number;
+
+  // 爆弾設置リクエストフラグ
+  private wantToPlaceBomb: boolean = false;
+  private bombButtonPressed: boolean = false;
 
   constructor(scene: Phaser.Scene, tileX: number, tileY: number, gameMap: GameMap) {
     const tileSize = getTileSize();
     const pos = gameMap.tileToPixel(tileX, tileY);
 
-    // 矩形として描画（仮グラフィック）
-    super(scene, pos.x, pos.y, tileSize * 0.8, tileSize * 0.8, COLORS.PLAYER);
+    super(scene, pos.x, pos.y);
 
     this.gameMap = gameMap;
     this.tileSize = tileSize;
+
+    // グラフィックを作成
+    this.graphics = scene.add.graphics();
+    this.add(this.graphics);
+    this.drawCharacter();
 
     // ステータス初期化
     this.speed = PLAYER_CONFIG.INITIAL_SPEED;
@@ -48,15 +59,51 @@ export class Player extends Phaser.GameObjects.Rectangle {
     const body = this.body as Phaser.Physics.Arcade.Body;
     body.setCollideWorldBounds(true);
 
-    // 当たり判定サイズを調整（少し小さめにして壁との衝突を自然に）
+    // 当たり判定サイズを調整
     const collisionSize = tileSize * 0.6;
     body.setSize(collisionSize, collisionSize);
+    body.setOffset(-collisionSize / 2, -collisionSize / 2);
 
     // 深度設定
     this.setDepth(DEPTHS.PLAYERS);
 
     // 入力設定
     this.setupInput();
+  }
+
+  /**
+   * ボンバーマン風キャラクターを描画
+   */
+  private drawCharacter(): void {
+    this.graphics.clear();
+    const size = this.tileSize * 0.8;
+    const halfSize = size / 2;
+
+    // 体（白い丸）
+    this.graphics.fillStyle(COLORS.PLAYER);
+    this.graphics.fillCircle(0, 0, halfSize * 0.9);
+
+    // 輪郭
+    this.graphics.lineStyle(2, 0x333333, 1);
+    this.graphics.strokeCircle(0, 0, halfSize * 0.9);
+
+    // 目
+    const eyeSize = size * 0.12;
+    const eyeY = -size * 0.1;
+    const eyeX = size * 0.15;
+    this.graphics.fillStyle(COLORS.PLAYER_FACE);
+    this.graphics.fillCircle(-eyeX, eyeY, eyeSize);
+    this.graphics.fillCircle(eyeX, eyeY, eyeSize);
+
+    // 口
+    this.graphics.lineStyle(2, COLORS.PLAYER_FACE, 1);
+    this.graphics.beginPath();
+    this.graphics.arc(0, size * 0.05, size * 0.15, 0.2, Math.PI - 0.2);
+    this.graphics.strokePath();
+
+    // 頭のアンテナ（ボンバーマンらしさ）
+    this.graphics.fillStyle(0xff6600);
+    this.graphics.fillCircle(0, -halfSize * 0.95, size * 0.08);
   }
 
   /**
@@ -78,8 +125,15 @@ export class Player extends Phaser.GameObjects.Rectangle {
       right: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
     };
 
-    // スペースキー（爆弾設置用）- TICKET-006で実装
-    // this.spaceKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    // スペースキー（爆弾設置用）
+    this.spaceKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+  }
+
+  /**
+   * バーチャルジョイスティックを設定
+   */
+  setJoystick(joystick: VirtualJoystick): void {
+    this.joystick = joystick;
   }
 
   /**
@@ -87,93 +141,132 @@ export class Player extends Phaser.GameObjects.Rectangle {
    */
   update(): void {
     this.handleMovement();
+    this.handleBombInput();
+  }
+
+  /**
+   * 爆弾設置入力を処理
+   */
+  private handleBombInput(): void {
+    // スペースキーまたはモバイルボタンで爆弾設置
+    const spacePressed = this.spaceKey?.isDown || false;
+
+    // ボタンが押されていなかった状態から押された場合のみ設置
+    if (spacePressed && !this.bombButtonPressed) {
+      this.wantToPlaceBomb = true;
+    }
+    this.bombButtonPressed = spacePressed;
+  }
+
+  /**
+   * 爆弾設置リクエストをチェック（GameSceneから呼び出し）
+   */
+  checkBombRequest(): boolean {
+    if (this.wantToPlaceBomb && this.canPlaceBomb()) {
+      this.wantToPlaceBomb = false;
+      return true;
+    }
+    this.wantToPlaceBomb = false;
+    return false;
+  }
+
+  /**
+   * モバイル用: 爆弾設置ボタンが押された
+   */
+  requestBombPlace(): void {
+    this.wantToPlaceBomb = true;
   }
 
   /**
    * 移動処理
+   * X方向とY方向を独立して処理することで斜め入力時のハマりを防止
    */
   private handleMovement(): void {
     const body = this.body as Phaser.Physics.Arcade.Body;
 
-    // 移動入力をチェック
-    const moveLeft = this.cursors.left.isDown || this.wasdKeys.left.isDown;
-    const moveRight = this.cursors.right.isDown || this.wasdKeys.right.isDown;
-    const moveUp = this.cursors.up.isDown || this.wasdKeys.up.isDown;
-    const moveDown = this.cursors.down.isDown || this.wasdKeys.down.isDown;
-
     // 速度をリセット
     body.setVelocity(0, 0);
 
-    // 移動方向を決定（8方向移動を許可）
-    let velocityX = 0;
-    let velocityY = 0;
+    // 入力値を取得
+    let inputX = 0;
+    let inputY = 0;
 
-    if (moveLeft) velocityX = -1;
-    if (moveRight) velocityX = 1;
-    if (moveUp) velocityY = -1;
-    if (moveDown) velocityY = 1;
+    // ジョイスティック入力を優先
+    if (this.joystick && this.joystick.getIsActive()) {
+      inputX = this.joystick.inputX;
+      inputY = this.joystick.inputY;
+    } else {
+      // キーボード入力
+      const moveLeft = this.cursors?.left?.isDown || this.wasdKeys?.left?.isDown;
+      const moveRight = this.cursors?.right?.isDown || this.wasdKeys?.right?.isDown;
+      const moveUp = this.cursors?.up?.isDown || this.wasdKeys?.up?.isDown;
+      const moveDown = this.cursors?.down?.isDown || this.wasdKeys?.down?.isDown;
 
-    // 斜め移動の場合は速度を正規化
-    if (velocityX !== 0 && velocityY !== 0) {
-      const magnitude = Math.sqrt(velocityX * velocityX + velocityY * velocityY);
-      velocityX /= magnitude;
-      velocityY /= magnitude;
+      if (moveLeft) inputX = -1;
+      if (moveRight) inputX = 1;
+      if (moveUp) inputY = -1;
+      if (moveDown) inputY = 1;
     }
 
-    // 速度を適用
-    if (velocityX !== 0 || velocityY !== 0) {
-      body.setVelocity(velocityX * this.speed, velocityY * this.speed);
+    // 移動がなければ終了
+    if (Math.abs(inputX) < 0.1 && Math.abs(inputY) < 0.1) return;
+
+    // 速度の大きさを計算（ジョイスティックはアナログ入力）
+    const magnitude = Math.sqrt(inputX * inputX + inputY * inputY);
+    let normalizedX = inputX;
+    let normalizedY = inputY;
+
+    // 正規化（大きさが1を超えないように）
+    if (magnitude > 1) {
+      normalizedX = inputX / magnitude;
+      normalizedY = inputY / magnitude;
     }
 
-    // 壁との衝突チェック
-    this.checkWallCollision();
+    const deltaTime = this.scene.game.loop.delta / 1000;
+    const moveAmount = this.speed * deltaTime;
+
+    // X方向の移動を試行
+    if (Math.abs(normalizedX) > 0.1) {
+      const newX = this.x + normalizedX * moveAmount;
+      if (this.canMoveTo(newX, this.y)) {
+        this.x = newX;
+        body.setVelocityX(normalizedX * this.speed);
+      }
+    }
+
+    // Y方向の移動を試行（独立して処理）
+    if (Math.abs(normalizedY) > 0.1) {
+      const newY = this.y + normalizedY * moveAmount;
+      if (this.canMoveTo(this.x, newY)) {
+        this.y = newY;
+        body.setVelocityY(normalizedY * this.speed);
+      }
+    }
   }
 
   /**
-   * 壁との衝突をチェック
+   * 指定位置に移動可能かチェック
    */
-  private checkWallCollision(): void {
+  private canMoveTo(newX: number, newY: number): boolean {
     const body = this.body as Phaser.Physics.Arcade.Body;
-
-    // プレイヤーの四隅の位置をタイル座標で取得
     const halfWidth = body.width / 2;
     const halfHeight = body.height / 2;
 
+    // 四隅をチェック
     const corners = [
-      { x: this.x - halfWidth, y: this.y - halfHeight }, // 左上
-      { x: this.x + halfWidth, y: this.y - halfHeight }, // 右上
-      { x: this.x - halfWidth, y: this.y + halfHeight }, // 左下
-      { x: this.x + halfWidth, y: this.y + halfHeight }, // 右下
+      { x: newX - halfWidth, y: newY - halfHeight }, // 左上
+      { x: newX + halfWidth, y: newY - halfHeight }, // 右上
+      { x: newX - halfWidth, y: newY + halfHeight }, // 左下
+      { x: newX + halfWidth, y: newY + halfHeight }, // 右下
     ];
 
-    // いずれかの角が壁に重なっている場合、押し戻す
     for (const corner of corners) {
       const tile = this.gameMap.pixelToTile(corner.x, corner.y);
-
       if (!this.gameMap.isWalkable(tile.x, tile.y)) {
-        // 壁との重なりを解消
-        const tileCenter = this.gameMap.tileToPixel(tile.x, tile.y);
-
-        // X方向の押し戻し
-        if (Math.abs(corner.x - tileCenter.x) > Math.abs(corner.y - tileCenter.y)) {
-          if (corner.x < tileCenter.x) {
-            this.x = Math.min(this.x, tileCenter.x - this.tileSize / 2 - halfWidth - 1);
-          } else {
-            this.x = Math.max(this.x, tileCenter.x + this.tileSize / 2 + halfWidth + 1);
-          }
-          body.setVelocityX(0);
-        }
-        // Y方向の押し戻し
-        else {
-          if (corner.y < tileCenter.y) {
-            this.y = Math.min(this.y, tileCenter.y - this.tileSize / 2 - halfHeight - 1);
-          } else {
-            this.y = Math.max(this.y, tileCenter.y + this.tileSize / 2 + halfHeight + 1);
-          }
-          body.setVelocityY(0);
-        }
+        return false;
       }
     }
+    return true;
   }
 
   /**
