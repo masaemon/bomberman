@@ -40,12 +40,25 @@ export const getTileSize = (): number => {
   return 32;
 };
 
+// HUD設定
+export const HUD_CONFIG = {
+  HEIGHT: 40, // HUDの高さ（ピクセル）
+};
+
 // ゲーム画面サイズ
 export const getGameSize = () => {
   const tileSize = getTileSize();
   return {
     width: MAP_CONFIG.WIDTH * tileSize,
-    height: MAP_CONFIG.HEIGHT * tileSize,
+    height: MAP_CONFIG.HEIGHT * tileSize + HUD_CONFIG.HEIGHT, // HUD分を追加
+  };
+};
+
+// マップ開始位置（HUDの下から）
+export const getMapOffset = () => {
+  return {
+    x: 0,
+    y: HUD_CONFIG.HEIGHT,
   };
 };
 
@@ -92,17 +105,35 @@ export const FIELD_SHRINK_CONFIG = {
   WARNING_TIME: 5000,  // 警告時間（5秒前）
 };
 
-// 色設定（仮グラフィック用）
+// 色設定（ボンバーマン風）
 export const COLORS = {
-  EMPTY: 0x1a1a1a,         // 空白
-  WALL: 0x4a4a4a,          // 破壊不可能な壁
-  BREAKABLE_WALL: 0x8b4513, // 破壊可能な壁
-  PLAYER: 0x00ff00,         // プレイヤー
-  ENEMY: 0xff0000,          // 敵
-  BOMB: 0x000000,           // 爆弾
-  EXPLOSION: 0xffa500,      // 爆発
-  SHRINK_WARNING: 0xff0000, // 縮小警告
-  GRID: 0x333333,           // グリッド線
+  // 地面（緑のチェッカーパターン）
+  FLOOR_LIGHT: 0x3cb371,     // 明るい緑
+  FLOOR_DARK: 0x2e8b57,      // 暗い緑
+  // 壁
+  WALL: 0x696969,            // 破壊不可能な壁（灰色）
+  WALL_LIGHT: 0x808080,      // 壁のハイライト
+  WALL_DARK: 0x484848,       // 壁の影
+  BREAKABLE_WALL: 0xcd853f,  // 破壊可能な壁（茶色/レンガ）
+  BREAKABLE_LIGHT: 0xdeb887, // レンガのハイライト
+  BREAKABLE_DARK: 0x8b4513,  // レンガの影
+  // キャラクター
+  PLAYER: 0xffffff,          // プレイヤー（白）
+  PLAYER_FACE: 0x1a1a1a,     // プレイヤーの顔
+  ENEMY: 0xff4444,           // 敵（赤）
+  ENEMY_DARK: 0xcc0000,      // 敵の影
+  // エフェクト
+  BOMB: 0x1a1a1a,            // 爆弾（黒）
+  BOMB_FUSE: 0xff6600,       // 導火線
+  EXPLOSION: 0xff6600,       // 爆発（オレンジ）
+  EXPLOSION_CENTER: 0xffff00, // 爆発中心（黄）
+  SHRINK_WARNING: 0xff0000,   // 縮小警告
+  // UI
+  GRID: 0x333333,            // グリッド線
+  HUD_BG: 0x2a2a2a,          // HUD背景
+  HUD_TEXT: 0xffffff,        // HUDテキスト
+  // 互換性のため維持
+  EMPTY: 0x3cb371,
 };
 
 // 深度（レンダリング順序）

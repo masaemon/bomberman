@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { getTileSize } from '../config/GameConfig';
+import { getTileSize, getGameSize, HUD_CONFIG, COLORS, DEPTHS } from '../config/GameConfig';
 import { GameMap } from '../map/GameMap';
 import { Player } from '../entities/Player';
 
@@ -22,6 +22,9 @@ export class GameScene extends Phaser.Scene {
     const tileSize = getTileSize();
     console.log(`Game started with tile size: ${tileSize}px`);
 
+    // HUDエリアを描画
+    this.createHUD();
+
     // マップ生成と描画
     this.gameMap = new GameMap(this);
     this.gameMap.render();
@@ -30,14 +33,34 @@ export class GameScene extends Phaser.Scene {
     this.player = new Player(this, 1, 1, this.gameMap);
 
     // TODO: 敵配置
+  }
 
-    // デバッグ情報表示
-    this.add.text(10, 10, 'Bomberman Game - Dev Build\nArrow Keys or WASD to move', {
-      fontSize: '16px',
+  /**
+   * HUDエリアを作成
+   */
+  private createHUD(): void {
+    const { width } = getGameSize();
+    const hudHeight = HUD_CONFIG.HEIGHT;
+
+    // HUD背景
+    const hudBg = this.add.graphics();
+    hudBg.fillStyle(COLORS.HUD_BG, 1);
+    hudBg.fillRect(0, 0, width, hudHeight);
+    hudBg.setDepth(DEPTHS.UI);
+
+    // ゲームタイトル
+    this.add.text(10, hudHeight / 2, 'BOMBERMAN', {
+      fontSize: '20px',
+      fontFamily: 'Arial Black, sans-serif',
       color: '#ffffff',
-      backgroundColor: '#000000',
-      padding: { x: 5, y: 5 },
-    }).setDepth(1000);
+    }).setOrigin(0, 0.5).setDepth(DEPTHS.UI + 1);
+
+    // 操作説明
+    this.add.text(width - 10, hudHeight / 2, 'Arrow Keys / WASD to move', {
+      fontSize: '14px',
+      fontFamily: 'Arial, sans-serif',
+      color: '#aaaaaa',
+    }).setOrigin(1, 0.5).setDepth(DEPTHS.UI + 1);
   }
 
   update(_time: number, _delta: number): void {

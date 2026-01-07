@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { TileType, MAP_CONFIG, getTileSize, COLORS, DEPTHS } from '../config/GameConfig';
+import { TileType, MAP_CONFIG, getTileSize, getMapOffset, COLORS, DEPTHS } from '../config/GameConfig';
 
 /**
  * ゲームマップの生成・管理クラス
@@ -9,6 +9,8 @@ export class GameMap {
   private tileSize: number;
   private mapData: TileType[][];
   private tileGraphics: Phaser.GameObjects.Graphics;
+  private offsetX: number;
+  private offsetY: number;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -16,6 +18,10 @@ export class GameMap {
     this.mapData = [];
     this.tileGraphics = this.scene.add.graphics();
     this.tileGraphics.setDepth(DEPTHS.BACKGROUND);
+
+    const offset = getMapOffset();
+    this.offsetX = offset.x;
+    this.offsetY = offset.y;
 
     this.generateMap();
   }
@@ -132,7 +138,7 @@ export class GameMap {
   }
 
   /**
-   * マップを描画
+   * マップを描画（ボンバーマン風）
    */
   render(): void {
     this.tileGraphics.clear();
@@ -140,39 +146,94 @@ export class GameMap {
     for (let y = 0; y < MAP_CONFIG.HEIGHT; y++) {
       for (let x = 0; x < MAP_CONFIG.WIDTH; x++) {
         const tileType = this.mapData[y][x];
-        let color: number;
+        const px = x * this.tileSize + this.offsetX;
+        const py = y * this.tileSize + this.offsetY;
 
+        // まず床を描画（チェッカーパターン）
+        const isLightTile = (x + y) % 2 === 0;
+        this.tileGraphics.fillStyle(isLightTile ? COLORS.FLOOR_LIGHT : COLORS.FLOOR_DARK);
+        this.tileGraphics.fillRect(px, py, this.tileSize, this.tileSize);
+
+        // タイルの種類に応じて描画
         switch (tileType) {
           case TileType.WALL:
-            color = COLORS.WALL;
+            this.drawWall(px, py);
             break;
           case TileType.BREAKABLE_WALL:
-            color = COLORS.BREAKABLE_WALL;
-            break;
-          default:
-            color = COLORS.EMPTY;
+            this.drawBreakableWall(px, py);
             break;
         }
-
-        // タイルを描画
-        this.tileGraphics.fillStyle(color);
-        this.tileGraphics.fillRect(
-          x * this.tileSize,
-          y * this.tileSize,
-          this.tileSize,
-          this.tileSize
-        );
-
-        // グリッド線を描画（デバッグ用）
-        this.tileGraphics.lineStyle(1, COLORS.GRID, 0.3);
-        this.tileGraphics.strokeRect(
-          x * this.tileSize,
-          y * this.tileSize,
-          this.tileSize,
-          this.tileSize
-        );
       }
     }
+  }
+
+  /**
+   * 破壊不可能な壁を描画（立体感のある灰色ブロック）
+   */
+  private drawWall(px: number, py: number): void {
+    const size = this.tileSize;
+    const border = Math.max(2, size * 0.1);
+
+    // ベース色
+    this.tileGraphics.fillStyle(COLORS.WALL);
+    this.tileGraphics.fillRect(px, py, size, size);
+
+    // ハイライト（上と左）
+    this.tileGraphics.fillStyle(COLORS.WALL_LIGHT);
+    this.tileGraphics.fillRect(px, py, size, border);
+    this.tileGraphics.fillRect(px, py, border, size);
+
+    // 影（下と右）
+    this.tileGraphics.fillStyle(COLORS.WALL_DARK);
+    this.tileGraphics.fillRect(px, py + size - border, size, border);
+    this.tileGraphics.fillRect(px + size - border, py, border, size);
+  }
+
+  /**
+   * 破壊可能な壁を描画（レンガ風）
+   */
+  private drawBreakableWall(px: number, py: number): void {
+    const size = this.tileSize;
+    const border = Math.max(1, size * 0.06);
+    const halfSize = size / 2;
+
+    // ベース色
+    this.tileGraphics.fillStyle(COLORS.BREAKABLE_WALL);
+    this.tileGraphics.fillRect(px, py, size, size);
+
+    // レンガのパターンを描画
+    this.tileGraphics.lineStyle(border, COLORS.BREAKABLE_DARK, 1);
+
+    // 水平線（3本）
+    this.tileGraphics.beginPath();
+    this.tileGraphics.moveTo(px, py + halfSize / 2);
+    this.tileGraphics.lineTo(px + size, py + halfSize / 2);
+    this.tileGraphics.moveTo(px, py + halfSize);
+    this.tileGraphics.lineTo(px + size, py + halfSize);
+    this.tileGraphics.moveTo(px, py + halfSize + halfSize / 2);
+    this.tileGraphics.lineTo(px + size, py + halfSize + halfSize / 2);
+    this.tileGraphics.strokePath();
+
+    // 縦線（互い違い）
+    this.tileGraphics.beginPath();
+    this.tileGraphics.moveTo(px + halfSize, py);
+    this.tileGraphics.lineTo(px + halfSize, py + halfSize / 2);
+    this.tileGraphics.moveTo(px + halfSize / 2, py + halfSize / 2);
+    this.tileGraphics.lineTo(px + halfSize / 2, py + halfSize);
+    this.tileGraphics.moveTo(px + halfSize + halfSize / 2, py + halfSize / 2);
+    this.tileGraphics.lineTo(px + halfSize + halfSize / 2, py + halfSize);
+    this.tileGraphics.moveTo(px + halfSize, py + halfSize);
+    this.tileGraphics.lineTo(px + halfSize, py + halfSize + halfSize / 2);
+    this.tileGraphics.moveTo(px + halfSize / 2, py + halfSize + halfSize / 2);
+    this.tileGraphics.lineTo(px + halfSize / 2, py + size);
+    this.tileGraphics.moveTo(px + halfSize + halfSize / 2, py + halfSize + halfSize / 2);
+    this.tileGraphics.lineTo(px + halfSize + halfSize / 2, py + size);
+    this.tileGraphics.strokePath();
+
+    // ハイライト（左上）
+    this.tileGraphics.fillStyle(COLORS.BREAKABLE_LIGHT);
+    this.tileGraphics.fillRect(px, py, size, border);
+    this.tileGraphics.fillRect(px, py, border, size);
   }
 
   /**
@@ -180,8 +241,8 @@ export class GameMap {
    */
   tileToPixel(tileX: number, tileY: number): { x: number; y: number } {
     return {
-      x: tileX * this.tileSize + this.tileSize / 2,
-      y: tileY * this.tileSize + this.tileSize / 2,
+      x: tileX * this.tileSize + this.tileSize / 2 + this.offsetX,
+      y: tileY * this.tileSize + this.tileSize / 2 + this.offsetY,
     };
   }
 
@@ -190,8 +251,8 @@ export class GameMap {
    */
   pixelToTile(pixelX: number, pixelY: number): { x: number; y: number } {
     return {
-      x: Math.floor(pixelX / this.tileSize),
-      y: Math.floor(pixelY / this.tileSize),
+      x: Math.floor((pixelX - this.offsetX) / this.tileSize),
+      y: Math.floor((pixelY - this.offsetY) / this.tileSize),
     };
   }
 
