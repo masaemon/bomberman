@@ -14,6 +14,7 @@ export class Player extends Phaser.GameObjects.Container {
     left: Phaser.Input.Keyboard.Key;
     right: Phaser.Input.Keyboard.Key;
   };
+  private spaceKey!: Phaser.Input.Keyboard.Key;
   private gameMap: GameMap;
   private tileSize: number;
   private graphics: Phaser.GameObjects.Graphics;
@@ -24,6 +25,10 @@ export class Player extends Phaser.GameObjects.Container {
   public bombCount: number;
   public bombRange: number;
   public placedBombs: number;
+
+  // 爆弾設置リクエストフラグ
+  private wantToPlaceBomb: boolean = false;
+  private bombButtonPressed: boolean = false;
 
   constructor(scene: Phaser.Scene, tileX: number, tileY: number, gameMap: GameMap) {
     const tileSize = getTileSize();
@@ -120,8 +125,8 @@ export class Player extends Phaser.GameObjects.Container {
       right: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),
     };
 
-    // スペースキー（爆弾設置用）- TICKET-006で実装
-    // this.spaceKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    // スペースキー（爆弾設置用）
+    this.spaceKey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
   }
 
   /**
@@ -136,6 +141,40 @@ export class Player extends Phaser.GameObjects.Container {
    */
   update(): void {
     this.handleMovement();
+    this.handleBombInput();
+  }
+
+  /**
+   * 爆弾設置入力を処理
+   */
+  private handleBombInput(): void {
+    // スペースキーまたはモバイルボタンで爆弾設置
+    const spacePressed = this.spaceKey?.isDown || false;
+
+    // ボタンが押されていなかった状態から押された場合のみ設置
+    if (spacePressed && !this.bombButtonPressed) {
+      this.wantToPlaceBomb = true;
+    }
+    this.bombButtonPressed = spacePressed;
+  }
+
+  /**
+   * 爆弾設置リクエストをチェック（GameSceneから呼び出し）
+   */
+  checkBombRequest(): boolean {
+    if (this.wantToPlaceBomb && this.canPlaceBomb()) {
+      this.wantToPlaceBomb = false;
+      return true;
+    }
+    this.wantToPlaceBomb = false;
+    return false;
+  }
+
+  /**
+   * モバイル用: 爆弾設置ボタンが押された
+   */
+  requestBombPlace(): void {
+    this.wantToPlaceBomb = true;
   }
 
   /**
