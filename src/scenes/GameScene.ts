@@ -1,10 +1,11 @@
 import Phaser from 'phaser';
-import { getTileSize, getGameSize, HUD_CONFIG, COLORS, DEPTHS, isMobile, TileType } from '../config/GameConfig';
+import { getTileSize, getGameSize, HUD_CONFIG, COLORS, DEPTHS, isMobile, TileType, MAP_CONFIG } from '../config/GameConfig';
 import { GameMap } from '../map/GameMap';
 import { Player } from '../entities/Player';
 import { VirtualJoystick } from '../ui/VirtualJoystick';
 import { Bomb } from '../entities/Bomb';
 import { Explosion } from '../entities/Explosion';
+import { Enemy, getEnemySpawnPositions } from '../entities/Enemy';
 
 /**
  * メインゲームシーン
@@ -17,6 +18,12 @@ export class GameScene extends Phaser.Scene {
   // 爆弾・爆発管理
   private bombs: Bomb[] = [];
   private explosions: Explosion[] = [];
+
+  // 敵管理
+  private enemies: Enemy[] = [];
+
+  // ゲーム状態
+  private isGameOver: boolean = false;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -46,7 +53,20 @@ export class GameScene extends Phaser.Scene {
       this.player.setJoystick(this.joystick);
     }
 
-    // TODO: 敵配置
+    // 敵配置
+    this.spawnEnemies();
+  }
+
+  /**
+   * 敵をスポーン
+   */
+  private spawnEnemies(): void {
+    const spawnPositions = getEnemySpawnPositions(MAP_CONFIG.WIDTH, MAP_CONFIG.HEIGHT);
+
+    for (const pos of spawnPositions) {
+      const enemy = new Enemy(this, pos.x, pos.y, this.gameMap);
+      this.enemies.push(enemy);
+    }
   }
 
   /**
@@ -79,6 +99,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
+    // ゲームオーバー時は更新しない
+    if (this.isGameOver) return;
+
+    // 危険なタイルを計算
+    const dangerousTiles = this.calculateDangerousTiles();
+
     // プレイヤー更新
     if (this.player) {
       this.player.update();
@@ -87,7 +113,32 @@ export class GameScene extends Phaser.Scene {
       if (this.player.checkBombRequest()) {
         this.placeBomb();
       }
+
+      // プレイヤーの爆発判定
+      this.checkPlayerExplosion();
     }
+
+    // 敵更新
+    const playerTile = this.player.getTilePosition();
+    for (const enemy of this.enemies) {
+      if (enemy.isAlive) {
+        // AIにプレイヤー位置と危険タイルを伝える
+        enemy.setPlayerPosition(playerTile);
+        enemy.setDangerousTiles(dangerousTiles);
+        enemy.update(delta);
+
+        // 敵の爆弾設置リクエストをチェック
+        if (enemy.checkBombRequest()) {
+          this.placeEnemyBomb(enemy);
+        }
+      }
+    }
+
+    // 敵の爆発判定
+    this.checkEnemyExplosions();
+
+    // 勝利判定
+    this.checkVictory();
 
     // 爆弾更新
     for (const bomb of this.bombs) {
@@ -98,6 +149,190 @@ export class GameScene extends Phaser.Scene {
     for (const explosion of this.explosions) {
       explosion.update(delta);
     }
+  }
+
+  /**
+   * 危険なタイル（爆弾・爆発範囲）を計算
+   */
+  private calculateDangerousTiles(): Set<string> {
+    const dangerous = new Set<string>();
+
+    // 爆弾の位置と予測爆発範囲
+    for (const bomb of this.bombs) {
+      const pos = bomb.getTilePosition();
+      dangerous.add(`${pos.x},${pos.y}`);
+
+      // 4方向の爆発範囲を予測
+      const directions = [
+        { dx: 0, dy: -1 },
+        { dx: 0, dy: 1 },
+        { dx: -1, dy: 0 },
+        { dx: 1, dy: 0 },
+      ];
+
+      for (const dir of directions) {
+        for (let i = 1; i <= bomb.bombRange; i++) {
+          const tx = pos.x + dir.dx * i;
+          const ty = pos.y + dir.dy * i;
+
+          const tileType = this.gameMap.getTileAt(tx, ty);
+          if (tileType === TileType.WALL) break;
+
+          dangerous.add(`${tx},${ty}`);
+
+          if (tileType === TileType.BREAKABLE_WALL) break;
+        }
+      }
+    }
+
+    // 現在の爆発範囲
+    for (const explosion of this.explosions) {
+      const tiles = explosion.getExplosionTiles();
+      for (const tile of tiles) {
+        dangerous.add(`${tile.x},${tile.y}`);
+      }
+    }
+
+    return dangerous;
+  }
+
+  /**
+   * プレイヤーが爆発に巻き込まれたかチェック
+   */
+  private checkPlayerExplosion(): void {
+    const playerTile = this.player.getTilePosition();
+
+    for (const explosion of this.explosions) {
+      if (explosion.isInExplosion(playerTile.x, playerTile.y)) {
+        this.onPlayerDeath();
+        return;
+      }
+    }
+  }
+
+  /**
+   * 敵が爆発に巻き込まれたかチェック
+   */
+  private checkEnemyExplosions(): void {
+    for (const enemy of this.enemies) {
+      if (!enemy.isAlive) continue;
+
+      const enemyTile = enemy.getTilePosition();
+
+      for (const explosion of this.explosions) {
+        if (explosion.isInExplosion(enemyTile.x, enemyTile.y)) {
+          enemy.die();
+          break;
+        }
+      }
+    }
+  }
+
+  /**
+   * 勝利判定（全敵撃破）
+   */
+  private checkVictory(): void {
+    const aliveEnemies = this.enemies.filter(e => e.isAlive);
+
+    if (aliveEnemies.length === 0) {
+      this.onVictory();
+    }
+  }
+
+  /**
+   * 勝利処理
+   */
+  private onVictory(): void {
+    this.isGameOver = true;
+
+    const { width, height } = getGameSize();
+    const centerX = width / 2;
+    const centerY = height / 2;
+
+    // 背景オーバーレイ
+    const overlay = this.add.graphics();
+    overlay.fillStyle(0x000000, 0.7);
+    overlay.fillRect(0, 0, width, height);
+    overlay.setDepth(DEPTHS.UI + 50);
+
+    // 勝利テキスト
+    this.add.text(centerX, centerY - 30, 'YOU WIN!', {
+      fontSize: '48px',
+      fontFamily: 'Arial Black, sans-serif',
+      color: '#00ff00',
+    }).setOrigin(0.5).setDepth(DEPTHS.UI + 51);
+
+    // リトライテキスト
+    const retryMessage = isMobile() ? 'Tap to Play Again' : 'Press SPACE to Play Again';
+    this.add.text(centerX, centerY + 30, retryMessage, {
+      fontSize: '24px',
+      fontFamily: 'Arial, sans-serif',
+      color: '#ffffff',
+    }).setOrigin(0.5).setDepth(DEPTHS.UI + 51);
+
+    // リトライ入力を設定
+    this.setupRetryInput();
+  }
+
+  /**
+   * プレイヤー死亡処理
+   */
+  private onPlayerDeath(): void {
+    this.isGameOver = true;
+
+    // プレイヤーを非表示
+    this.player.setVisible(false);
+
+    // ゲームオーバー表示
+    const { width, height } = getGameSize();
+    const centerX = width / 2;
+    const centerY = height / 2;
+
+    // 背景オーバーレイ
+    const overlay = this.add.graphics();
+    overlay.fillStyle(0x000000, 0.7);
+    overlay.fillRect(0, 0, width, height);
+    overlay.setDepth(DEPTHS.UI + 50);
+
+    // ゲームオーバーテキスト
+    this.add.text(centerX, centerY - 30, 'GAME OVER', {
+      fontSize: '48px',
+      fontFamily: 'Arial Black, sans-serif',
+      color: '#ff0000',
+    }).setOrigin(0.5).setDepth(DEPTHS.UI + 51);
+
+    // リトライテキスト
+    const retryMessage = isMobile() ? 'Tap to Retry' : 'Press SPACE to Retry';
+    this.add.text(centerX, centerY + 30, retryMessage, {
+      fontSize: '24px',
+      fontFamily: 'Arial, sans-serif',
+      color: '#ffffff',
+    }).setOrigin(0.5).setDepth(DEPTHS.UI + 51);
+
+    // リトライ入力を設定
+    this.setupRetryInput();
+  }
+
+  /**
+   * リトライ入力を設定
+   */
+  private setupRetryInput(): void {
+    // スペースキーでリトライ
+    this.input.keyboard?.once('keydown-SPACE', () => {
+      this.restartGame();
+    });
+
+    // タッチでリトライ
+    this.input.once('pointerdown', () => {
+      this.restartGame();
+    });
+  }
+
+  /**
+   * ゲームをリスタート
+   */
+  private restartGame(): void {
+    this.scene.restart();
   }
 
   /**
@@ -132,6 +367,79 @@ export class GameScene extends Phaser.Scene {
 
     this.bombs.push(bomb);
     this.player.onBombPlaced();
+  }
+
+  /**
+   * 敵が爆弾を設置
+   */
+  private placeEnemyBomb(enemy: Enemy): void {
+    const tilePos = enemy.getTilePosition();
+
+    // 同じ位置に既に爆弾があるかチェック
+    const bombExists = this.bombs.some(
+      bomb => {
+        const pos = bomb.getTilePosition();
+        return pos.x === tilePos.x && pos.y === tilePos.y;
+      }
+    );
+
+    if (bombExists) return;
+
+    // 爆弾を作成
+    const bomb = new Bomb(
+      this,
+      tilePos.x,
+      tilePos.y,
+      this.gameMap,
+      enemy.bombRange
+    );
+
+    // 爆発時のコールバック
+    bomb.setOnExplode((explodedBomb) => {
+      this.onEnemyBombExplode(explodedBomb, enemy);
+    });
+
+    this.bombs.push(bomb);
+    enemy.onBombPlaced();
+  }
+
+  /**
+   * 敵の爆弾爆発時の処理
+   */
+  private onEnemyBombExplode(bomb: Bomb, enemy: Enemy): void {
+    const tilePos = bomb.getTilePosition();
+
+    // 爆弾リストから削除
+    this.bombs = this.bombs.filter(b => b !== bomb);
+
+    // 爆発を作成
+    const explosion = new Explosion(
+      this,
+      tilePos.x,
+      tilePos.y,
+      this.gameMap,
+      bomb.bombRange
+    );
+
+    // 壁破壊時のコールバック
+    explosion.setOnDestroyWall((tileX, tileY) => {
+      this.destroyWall(tileX, tileY);
+    });
+
+    // 爆発終了時のコールバック
+    explosion.setOnFinish((finishedExplosion) => {
+      this.explosions = this.explosions.filter(e => e !== finishedExplosion);
+    });
+
+    this.explosions.push(explosion);
+
+    // 敵に爆発を通知
+    if (enemy.isAlive) {
+      enemy.onBombExploded();
+    }
+
+    // 誘爆チェック
+    this.checkChainExplosion(explosion);
   }
 
   /**
