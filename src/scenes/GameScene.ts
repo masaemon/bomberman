@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { getGameSize, getTileSize } from '../config/GameConfig';
+import { getTileSize } from '../config/GameConfig';
 import { GameMap } from '../map/GameMap';
 
 /**
@@ -36,7 +36,7 @@ export class GameScene extends Phaser.Scene {
     }).setDepth(1000);
   }
 
-  update(time: number, delta: number): void {
+  update(_time: number, _delta: number): void {
     // ゲームループ処理
   }
 }

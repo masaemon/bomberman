@@ -72,7 +72,6 @@ export class GameMap {
    */
   private placeBreakableWalls(): void {
     // 配置可能なマスの数を計算
-    const totalTiles = MAP_CONFIG.WIDTH * MAP_CONFIG.HEIGHT;
     let emptyTiles = 0;
 
     for (let y = 0; y < MAP_CONFIG.HEIGHT; y++) {
