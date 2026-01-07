@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { PLAYER_CONFIG, COLORS, DEPTHS, getTileSize } from '../config/GameConfig';
 import { GameMap } from '../map/GameMap';
+import { VirtualJoystick } from '../ui/VirtualJoystick';
 
 /**
  * プレイヤーキャラクタークラス（ボンバーマン風）
@@ -16,6 +17,7 @@ export class Player extends Phaser.GameObjects.Container {
   private gameMap: GameMap;
   private tileSize: number;
   private graphics: Phaser.GameObjects.Graphics;
+  private joystick: VirtualJoystick | null = null;
 
   // ステータス
   public speed: number;
@@ -123,6 +125,13 @@ export class Player extends Phaser.GameObjects.Container {
   }
 
   /**
+   * バーチャルジョイスティックを設定
+   */
+  setJoystick(joystick: VirtualJoystick): void {
+    this.joystick = joystick;
+  }
+
+  /**
    * 更新処理
    */
   update(): void {
@@ -136,51 +145,62 @@ export class Player extends Phaser.GameObjects.Container {
   private handleMovement(): void {
     const body = this.body as Phaser.Physics.Arcade.Body;
 
-    // 移動入力をチェック
-    const moveLeft = this.cursors.left.isDown || this.wasdKeys.left.isDown;
-    const moveRight = this.cursors.right.isDown || this.wasdKeys.right.isDown;
-    const moveUp = this.cursors.up.isDown || this.wasdKeys.up.isDown;
-    const moveDown = this.cursors.down.isDown || this.wasdKeys.down.isDown;
-
     // 速度をリセット
     body.setVelocity(0, 0);
 
-    // 移動方向を決定
+    // 入力値を取得
     let inputX = 0;
     let inputY = 0;
 
-    if (moveLeft) inputX = -1;
-    if (moveRight) inputX = 1;
-    if (moveUp) inputY = -1;
-    if (moveDown) inputY = 1;
+    // ジョイスティック入力を優先
+    if (this.joystick && this.joystick.getIsActive()) {
+      inputX = this.joystick.inputX;
+      inputY = this.joystick.inputY;
+    } else {
+      // キーボード入力
+      const moveLeft = this.cursors?.left?.isDown || this.wasdKeys?.left?.isDown;
+      const moveRight = this.cursors?.right?.isDown || this.wasdKeys?.right?.isDown;
+      const moveUp = this.cursors?.up?.isDown || this.wasdKeys?.up?.isDown;
+      const moveDown = this.cursors?.down?.isDown || this.wasdKeys?.down?.isDown;
+
+      if (moveLeft) inputX = -1;
+      if (moveRight) inputX = 1;
+      if (moveUp) inputY = -1;
+      if (moveDown) inputY = 1;
+    }
 
     // 移動がなければ終了
-    if (inputX === 0 && inputY === 0) return;
+    if (Math.abs(inputX) < 0.1 && Math.abs(inputY) < 0.1) return;
 
-    // 斜め移動の場合は速度を正規化
-    let speedMultiplier = 1;
-    if (inputX !== 0 && inputY !== 0) {
-      speedMultiplier = 1 / Math.sqrt(2);
+    // 速度の大きさを計算（ジョイスティックはアナログ入力）
+    const magnitude = Math.sqrt(inputX * inputX + inputY * inputY);
+    let normalizedX = inputX;
+    let normalizedY = inputY;
+
+    // 正規化（大きさが1を超えないように）
+    if (magnitude > 1) {
+      normalizedX = inputX / magnitude;
+      normalizedY = inputY / magnitude;
     }
 
     const deltaTime = this.scene.game.loop.delta / 1000;
     const moveAmount = this.speed * deltaTime;
 
     // X方向の移動を試行
-    if (inputX !== 0) {
-      const newX = this.x + inputX * moveAmount * speedMultiplier;
+    if (Math.abs(normalizedX) > 0.1) {
+      const newX = this.x + normalizedX * moveAmount;
       if (this.canMoveTo(newX, this.y)) {
         this.x = newX;
-        body.setVelocityX(inputX * this.speed * speedMultiplier);
+        body.setVelocityX(normalizedX * this.speed);
       }
     }
 
     // Y方向の移動を試行（独立して処理）
-    if (inputY !== 0) {
-      const newY = this.y + inputY * moveAmount * speedMultiplier;
+    if (Math.abs(normalizedY) > 0.1) {
+      const newY = this.y + normalizedY * moveAmount;
       if (this.canMoveTo(this.x, newY)) {
         this.y = newY;
-        body.setVelocityY(inputY * this.speed * speedMultiplier);
+        body.setVelocityY(normalizedY * this.speed);
       }
     }
   }
