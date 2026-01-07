@@ -54,17 +54,17 @@
 - [x] カメラ設定（デフォルト）
 - [x] グリッド表示（デバッグ用）
 
-### TICKET-005: プレイヤーキャラクター実装
+### ✅ TICKET-005: プレイヤーキャラクター実装
 **Priority**: High
-**Status**: Todo
+**Status**: Completed
 **Estimate**: 3h
 **Description**: プレイヤーの基本機能を実装
-- [ ] `src/entities/Player.ts`作成
-- [ ] プレイヤースプライト作成
-- [ ] キーボード入力処理（矢印キー、WASD）
-- [ ] 移動処理
-- [ ] 壁との衝突判定
-- [ ] グリッドにスナップする移動
+- [x] `src/entities/Player.ts`作成
+- [x] プレイヤースプライト作成（緑色の矩形、仮グラフィック）
+- [x] キーボード入力処理（矢印キー、WASD）
+- [x] 移動処理（8方向移動、速度正規化）
+- [x] 壁との衝突判定（押し戻し処理）
+- [x] Arcade Physics統合
 
 ### TICKET-006: 爆弾システム実装
 **Priority**: High
