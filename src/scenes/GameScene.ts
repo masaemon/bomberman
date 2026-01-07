@@ -1,12 +1,14 @@
 import Phaser from 'phaser';
 import { getTileSize } from '../config/GameConfig';
 import { GameMap } from '../map/GameMap';
+import { Player } from '../entities/Player';
 
 /**
  * メインゲームシーン
  */
 export class GameScene extends Phaser.Scene {
   private gameMap!: GameMap;
+  private player!: Player;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -24,11 +26,13 @@ export class GameScene extends Phaser.Scene {
     this.gameMap = new GameMap(this);
     this.gameMap.render();
 
-    // TODO: プレイヤー配置
+    // プレイヤー配置（左上の安全地帯）
+    this.player = new Player(this, 1, 1, this.gameMap);
+
     // TODO: 敵配置
 
     // デバッグ情報表示
-    this.add.text(10, 10, 'Bomberman Game - Dev Build', {
+    this.add.text(10, 10, 'Bomberman Game - Dev Build\nArrow Keys or WASD to move', {
       fontSize: '16px',
       color: '#ffffff',
       backgroundColor: '#000000',
@@ -37,6 +41,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, _delta: number): void {
-    // ゲームループ処理
+    // プレイヤー更新
+    if (this.player) {
+      this.player.update();
+    }
   }
 }
