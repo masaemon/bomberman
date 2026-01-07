@@ -5,11 +5,9 @@ import { Enemy } from '../entities/Enemy';
  * AIの状態
  */
 enum AIState {
-  IDLE,
-  ROAMING,      // 通常移動
-  CHASING,      // プレイヤー追跡
+  ROAMING,      // 通常移動（壁を壊しながら探索）
+  CHASING,      // ターゲット追跡
   FLEEING,      // 逃げる（爆弾設置後）
-  BOMBING,      // 爆弾設置
 }
 
 /**
@@ -23,10 +21,19 @@ const DIRECTIONS = [
 ];
 
 /**
+ * ターゲット情報
+ */
+interface Target {
+  x: number;
+  y: number;
+  isPlayer: boolean;
+}
+
+/**
  * 戦略的AIクラス
- * - プレイヤー追跡
+ * - プレイヤーと他の敵を攻撃
+ * - 積極的な爆弾設置
  * - 爆弾回避
- * - 戦略的な爆弾設置
  */
 export class SimpleAI {
   private enemy: Enemy;
@@ -42,12 +49,13 @@ export class SimpleAI {
   private stateTimer: number = 0;
   private bombCooldown: number = 0;
   private fleeTimer: number = 0;
+  private roamingBombTimer: number = 0;
 
   // 爆弾設置リクエスト
   private wantToPlaceBomb: boolean = false;
 
-  // プレイヤー位置（GameSceneから更新される）
-  private playerTile: { x: number; y: number } | null = null;
+  // ターゲット情報
+  private targets: Target[] = [];
 
   // 危険なタイル（爆弾・爆発範囲）
   private dangerousTiles: Set<string> = new Set();
@@ -66,6 +74,7 @@ export class SimpleAI {
 
     // クールダウン更新
     this.bombCooldown = Math.max(0, this.bombCooldown - delta);
+    this.roamingBombTimer += delta;
 
     // 状態に応じた行動
     switch (this.state) {
@@ -82,7 +91,7 @@ export class SimpleAI {
   }
 
   /**
-   * 通常移動モード
+   * 通常移動モード（積極的に探索・爆弾設置）
    */
   private updateRoaming(delta: number): void {
     this.stateTimer += delta;
@@ -94,8 +103,9 @@ export class SimpleAI {
       return;
     }
 
-    // プレイヤーが近くにいたら追跡モードへ
-    if (this.playerTile && this.getDistanceToPlayer() < 8) {
+    // ターゲットが近くにいたら追跡モードへ
+    const nearestTarget = this.findNearestTarget();
+    if (nearestTarget && this.getDistanceToTarget(nearestTarget) < 10) {
       this.state = AIState.CHASING;
       this.stateTimer = 0;
       return;
@@ -111,10 +121,33 @@ export class SimpleAI {
     if (!this.canMoveInDirection(this.moveDirection)) {
       this.chooseNewDirection();
     }
+
+    // 積極的に爆弾を設置（2秒ごとに30%の確率）
+    if (this.roamingBombTimer > 2000 && this.bombCooldown <= 0) {
+      this.roamingBombTimer = 0;
+      if (Math.random() < 0.3) {
+        if (this.canPlaceBombSafely()) {
+          this.wantToPlaceBomb = true;
+          this.bombCooldown = 2500;
+          this.state = AIState.FLEEING;
+          this.fleeTimer = 0;
+        }
+      }
+    }
+
+    // 近くに破壊可能な壁があれば爆弾設置
+    if (this.bombCooldown <= 0 && this.hasBreakableWallNearby()) {
+      if (this.canPlaceBombSafely()) {
+        this.wantToPlaceBomb = true;
+        this.bombCooldown = 2500;
+        this.state = AIState.FLEEING;
+        this.fleeTimer = 0;
+      }
+    }
   }
 
   /**
-   * プレイヤー追跡モード
+   * ターゲット追跡モード
    */
   private updateChasing(delta: number): void {
     this.stateTimer += delta;
@@ -126,30 +159,34 @@ export class SimpleAI {
       return;
     }
 
-    // プレイヤーが遠くなったら通常モードへ
-    if (!this.playerTile || this.getDistanceToPlayer() > 12) {
+    // ターゲットを探す
+    const target = this.findNearestTarget();
+
+    // ターゲットがいない、または遠くなったら通常モードへ
+    if (!target || this.getDistanceToTarget(target) > 15) {
       this.state = AIState.ROAMING;
       this.stateTimer = 0;
       return;
     }
 
-    // プレイヤーに向かう方向を計算
-    this.moveTowardsPlayer();
+    // ターゲットに向かう方向を計算
+    this.moveTowardsTarget(target);
 
-    // プレイヤーが近くにいて、爆弾設置可能なら設置
-    if (this.getDistanceToPlayer() <= 3 && this.bombCooldown <= 0) {
-      if (this.shouldPlaceBomb()) {
+    // ターゲットが近くにいて、爆弾設置可能なら設置
+    const distance = this.getDistanceToTarget(target);
+    if (distance <= 4 && this.bombCooldown <= 0) {
+      if (this.shouldPlaceBombForTarget(target)) {
         this.wantToPlaceBomb = true;
-        this.bombCooldown = 3000; // 3秒のクールダウン
+        this.bombCooldown = 2000;
         this.state = AIState.FLEEING;
         this.fleeTimer = 0;
       }
     }
 
     // 一定間隔で方向を再計算
-    if (this.stateTimer > 500) {
+    if (this.stateTimer > 400) {
       this.stateTimer = 0;
-      this.moveTowardsPlayer();
+      this.moveTowardsTarget(target);
     }
   }
 
@@ -160,7 +197,7 @@ export class SimpleAI {
     this.fleeTimer += delta;
 
     // 安全になったら通常モードへ
-    if (!this.isInDanger() && this.fleeTimer > 2000) {
+    if (!this.isInDanger() && this.fleeTimer > 1500) {
       this.state = AIState.ROAMING;
       this.stateTimer = 0;
       return;
@@ -171,26 +208,40 @@ export class SimpleAI {
   }
 
   /**
-   * プレイヤーとの距離を取得
+   * 最も近いターゲットを探す
    */
-  private getDistanceToPlayer(): number {
-    if (!this.playerTile) return Infinity;
+  private findNearestTarget(): Target | null {
+    if (this.targets.length === 0) return null;
 
+    let nearest: Target | null = null;
+    let minDistance = Infinity;
+
+    for (const target of this.targets) {
+      const distance = this.getDistanceToTarget(target);
+      if (distance < minDistance) {
+        minDistance = distance;
+        nearest = target;
+      }
+    }
+
+    return nearest;
+  }
+
+  /**
+   * ターゲットとの距離を取得
+   */
+  private getDistanceToTarget(target: Target): number {
     const enemyTile = this.enemy.getTilePosition();
-    const dx = this.playerTile.x - enemyTile.x;
-    const dy = this.playerTile.y - enemyTile.y;
+    const dx = target.x - enemyTile.x;
+    const dy = target.y - enemyTile.y;
     return Math.abs(dx) + Math.abs(dy);
   }
 
   /**
-   * プレイヤーに向かって移動
+   * ターゲットに向かって移動
    */
-  private moveTowardsPlayer(): void {
-    if (!this.playerTile) return;
-
+  private moveTowardsTarget(target: Target): void {
     const enemyTile = this.enemy.getTilePosition();
-
-    // 最適な方向を選択（A*ライクな経路探索を簡略化）
     const possibleMoves = this.getValidMoves();
 
     if (possibleMoves.length === 0) {
@@ -198,7 +249,7 @@ export class SimpleAI {
       return;
     }
 
-    // プレイヤーに最も近づける方向を選ぶ
+    // ターゲットに最も近づける方向を選ぶ
     let bestMove = possibleMoves[0];
     let bestScore = Infinity;
 
@@ -209,8 +260,8 @@ export class SimpleAI {
       // 危険なタイルは避ける
       if (this.isDangerousTile(newX, newY)) continue;
 
-      const newDx = this.playerTile.x - newX;
-      const newDy = this.playerTile.y - newY;
+      const newDx = target.x - newX;
+      const newDy = target.y - newY;
       const score = Math.abs(newDx) + Math.abs(newDy);
 
       if (score < bestScore) {
@@ -275,9 +326,30 @@ export class SimpleAI {
   }
 
   /**
-   * 爆弾を設置すべきか判断
+   * 近くに破壊可能な壁があるか
    */
-  private shouldPlaceBomb(): boolean {
+  private hasBreakableWallNearby(): boolean {
+    const tile = this.enemy.getTilePosition();
+    const range = this.enemy.bombRange;
+
+    for (const dir of DIRECTIONS) {
+      for (let i = 1; i <= range; i++) {
+        const tx = tile.x + dir.x * i;
+        const ty = tile.y + dir.y * i;
+
+        const tileType = this.gameMap.getTileAt(tx, ty);
+        if (tileType === 1) break; // 壁
+        if (tileType === 2) return true; // 破壊可能な壁
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * 安全に爆弾を設置できるか
+   */
+  private canPlaceBombSafely(): boolean {
     if (!this.enemy.canPlaceBomb()) return false;
 
     const enemyTile = this.enemy.getTilePosition();
@@ -286,22 +358,45 @@ export class SimpleAI {
     const escapeRoutes = this.getValidMoves().filter(move => {
       const newX = enemyTile.x + move.x;
       const newY = enemyTile.y + move.y;
-      return !this.isDangerousTile(newX, newY);
+      // 現在の危険タイルと、新しい爆弾の爆発範囲を考慮
+      return !this.isDangerousTile(newX, newY) && !this.wouldBeInBlastRange(newX, newY, enemyTile);
     });
 
-    // 逃げ道がなければ設置しない
-    if (escapeRoutes.length === 0) return false;
+    return escapeRoutes.length > 0;
+  }
 
-    // プレイヤーが爆発範囲内にいるかチェック
-    if (this.playerTile) {
-      const dx = Math.abs(this.playerTile.x - enemyTile.x);
-      const dy = Math.abs(this.playerTile.y - enemyTile.y);
+  /**
+   * 指定位置が爆弾の爆発範囲に入るか
+   */
+  private wouldBeInBlastRange(x: number, y: number, bombPos: { x: number; y: number }): boolean {
+    const range = this.enemy.bombRange;
 
-      // 同じ行または列にいて、爆発範囲内
-      if ((dx === 0 && dy <= this.enemy.bombRange) ||
-          (dy === 0 && dx <= this.enemy.bombRange)) {
-        return true;
-      }
+    // 同じ行または列にいて、範囲内かチェック
+    if (x === bombPos.x && Math.abs(y - bombPos.y) <= range) return true;
+    if (y === bombPos.y && Math.abs(x - bombPos.x) <= range) return true;
+
+    return false;
+  }
+
+  /**
+   * ターゲットに対して爆弾を設置すべきか判断
+   */
+  private shouldPlaceBombForTarget(target: Target): boolean {
+    if (!this.canPlaceBombSafely()) return false;
+
+    const enemyTile = this.enemy.getTilePosition();
+    const dx = Math.abs(target.x - enemyTile.x);
+    const dy = Math.abs(target.y - enemyTile.y);
+    const range = this.enemy.bombRange;
+
+    // 同じ行または列にいて、爆発範囲内
+    if ((dx === 0 && dy <= range) || (dy === 0 && dx <= range)) {
+      return true;
+    }
+
+    // ターゲットが近くにいれば、とにかく爆弾を置く
+    if (dx + dy <= 3) {
+      return true;
     }
 
     return false;
@@ -359,10 +454,20 @@ export class SimpleAI {
   }
 
   /**
-   * プレイヤー位置を設定（GameSceneから呼び出し）
+   * ターゲット位置を設定（GameSceneから呼び出し）
+   * プレイヤーと他の敵の位置を含む
    */
-  setPlayerPosition(tile: { x: number; y: number }): void {
-    this.playerTile = tile;
+  setTargets(targets: Target[]): void {
+    // 自分自身は除外
+    const myTile = this.enemy.getTilePosition();
+    this.targets = targets.filter(t => t.x !== myTile.x || t.y !== myTile.y);
+  }
+
+  /**
+   * プレイヤー位置を設定（互換性のため維持）
+   */
+  setPlayerPosition(_tile: { x: number; y: number }): void {
+    // setTargetsを使うようになったので、互換性のためだけに維持
   }
 
   /**

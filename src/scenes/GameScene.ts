@@ -124,12 +124,23 @@ export class GameScene extends Phaser.Scene {
       this.checkPlayerExplosion();
     }
 
-    // 敵更新
+    // ターゲットリストを作成（プレイヤー＋全敵）
     const playerTile = this.player.getTilePosition();
+    const allTargets: { x: number; y: number; isPlayer: boolean }[] = [
+      { ...playerTile, isPlayer: true }
+    ];
+    for (const e of this.enemies) {
+      if (e.isAlive) {
+        const tile = e.getTilePosition();
+        allTargets.push({ ...tile, isPlayer: false });
+      }
+    }
+
+    // 敵更新
     for (const enemy of this.enemies) {
       if (enemy.isAlive) {
-        // AIにプレイヤー位置、危険タイル、爆弾位置を伝える
-        enemy.setPlayerPosition(playerTile);
+        // AIにターゲット、危険タイル、爆弾位置を伝える
+        enemy.setTargets(allTargets);
         enemy.setDangerousTiles(dangerousTiles);
         enemy.setBombTiles(bombTiles);
         enemy.update(delta);

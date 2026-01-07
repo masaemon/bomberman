@@ -230,6 +230,13 @@ export class Enemy extends Phaser.GameObjects.Container {
   }
 
   /**
+   * AIにターゲット位置を伝える（プレイヤー＋他の敵）
+   */
+  setTargets(targets: { x: number; y: number; isPlayer: boolean }[]): void {
+    this.ai.setTargets(targets);
+  }
+
+  /**
    * AIに危険なタイルを伝える
    */
   setDangerousTiles(tiles: Set<string>): void {
