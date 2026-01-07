@@ -105,8 +105,14 @@ export class GameScene extends Phaser.Scene {
     // 危険なタイルを計算
     const dangerousTiles = this.calculateDangerousTiles();
 
+    // 爆弾位置を計算
+    const bombTiles = this.getBombTiles();
+
     // プレイヤー更新
     if (this.player) {
+      // プレイヤーに爆弾位置を伝える
+      this.player.setBombTiles(bombTiles);
+
       this.player.update();
 
       // 爆弾設置リクエストをチェック
@@ -122,9 +128,10 @@ export class GameScene extends Phaser.Scene {
     const playerTile = this.player.getTilePosition();
     for (const enemy of this.enemies) {
       if (enemy.isAlive) {
-        // AIにプレイヤー位置と危険タイルを伝える
+        // AIにプレイヤー位置、危険タイル、爆弾位置を伝える
         enemy.setPlayerPosition(playerTile);
         enemy.setDangerousTiles(dangerousTiles);
+        enemy.setBombTiles(bombTiles);
         enemy.update(delta);
 
         // 敵の爆弾設置リクエストをチェック
@@ -194,6 +201,18 @@ export class GameScene extends Phaser.Scene {
     }
 
     return dangerous;
+  }
+
+  /**
+   * 爆弾のタイル位置を取得
+   */
+  private getBombTiles(): Set<string> {
+    const tiles = new Set<string>();
+    for (const bomb of this.bombs) {
+      const pos = bomb.getTilePosition();
+      tiles.add(`${pos.x},${pos.y}`);
+    }
+    return tiles;
   }
 
   /**
@@ -367,6 +386,9 @@ export class GameScene extends Phaser.Scene {
 
     this.bombs.push(bomb);
     this.player.onBombPlaced();
+
+    // プレイヤーがこの爆弾をすり抜けられるように登録
+    this.player.registerPassableBomb(tilePos.x, tilePos.y);
   }
 
   /**
@@ -401,6 +423,9 @@ export class GameScene extends Phaser.Scene {
 
     this.bombs.push(bomb);
     enemy.onBombPlaced();
+
+    // 敵がこの爆弾をすり抜けられるように登録
+    enemy.registerPassableBomb(tilePos.x, tilePos.y);
   }
 
   /**

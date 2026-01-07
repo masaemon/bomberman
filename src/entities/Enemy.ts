@@ -19,6 +19,10 @@ export class Enemy extends Phaser.GameObjects.Container {
   public placedBombs: number;
   public isAlive: boolean = true;
 
+  // すり抜け可能な爆弾のタイル位置
+  private passableBombs: Set<string> = new Set();
+  private allBombTiles: Set<string> = new Set();
+
   constructor(scene: Phaser.Scene, tileX: number, tileY: number, gameMap: GameMap) {
     const tileSize = getTileSize();
     const pos = gameMap.tileToPixel(tileX, tileY);
@@ -169,11 +173,46 @@ export class Enemy extends Phaser.GameObjects.Container {
 
     for (const corner of corners) {
       const tile = this.gameMap.pixelToTile(corner.x, corner.y);
+
+      // マップの壁チェック
       if (!this.gameMap.isWalkable(tile.x, tile.y)) {
+        return false;
+      }
+
+      // 爆弾との衝突チェック（すり抜け可能な爆弾は除く）
+      const tileKey = `${tile.x},${tile.y}`;
+      if (this.allBombTiles.has(tileKey) && !this.passableBombs.has(tileKey)) {
         return false;
       }
     }
     return true;
+  }
+
+  /**
+   * 爆弾位置を更新（GameSceneから呼び出し）
+   */
+  setBombTiles(bombTiles: Set<string>): void {
+    this.allBombTiles = bombTiles;
+
+    // 敵が爆弾タイルから完全に離れたら、すり抜け不可にする
+    const currentTile = this.getTilePosition();
+    const currentKey = `${currentTile.x},${currentTile.y}`;
+
+    // すり抜け可能リストを更新
+    const newPassable = new Set<string>();
+    for (const bombKey of this.passableBombs) {
+      if (bombKey === currentKey && bombTiles.has(bombKey)) {
+        newPassable.add(bombKey);
+      }
+    }
+    this.passableBombs = newPassable;
+  }
+
+  /**
+   * 爆弾設置時にすり抜け可能として登録
+   */
+  registerPassableBomb(tileX: number, tileY: number): void {
+    this.passableBombs.add(`${tileX},${tileY}`);
   }
 
   /**

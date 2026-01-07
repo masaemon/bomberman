@@ -30,6 +30,9 @@ export class Player extends Phaser.GameObjects.Container {
   private wantToPlaceBomb: boolean = false;
   private bombButtonPressed: boolean = false;
 
+  // すり抜け可能な爆弾のタイル位置（置いた直後の爆弾）
+  private passableBombs: Set<string> = new Set();
+
   constructor(scene: Phaser.Scene, tileX: number, tileY: number, gameMap: GameMap) {
     const tileSize = getTileSize();
     const pos = gameMap.tileToPixel(tileX, tileY);
@@ -244,6 +247,9 @@ export class Player extends Phaser.GameObjects.Container {
     }
   }
 
+  // 現在のすべての爆弾位置（GameSceneから更新される）
+  private allBombTiles: Set<string> = new Set();
+
   /**
    * 指定位置に移動可能かチェック
    */
@@ -262,11 +268,47 @@ export class Player extends Phaser.GameObjects.Container {
 
     for (const corner of corners) {
       const tile = this.gameMap.pixelToTile(corner.x, corner.y);
+
+      // マップの壁チェック
       if (!this.gameMap.isWalkable(tile.x, tile.y)) {
+        return false;
+      }
+
+      // 爆弾との衝突チェック（すり抜け可能な爆弾は除く）
+      const tileKey = `${tile.x},${tile.y}`;
+      if (this.allBombTiles.has(tileKey) && !this.passableBombs.has(tileKey)) {
         return false;
       }
     }
     return true;
+  }
+
+  /**
+   * 爆弾位置を更新（GameSceneから呼び出し）
+   */
+  setBombTiles(bombTiles: Set<string>): void {
+    this.allBombTiles = bombTiles;
+
+    // プレイヤーが爆弾タイルから完全に離れたら、すり抜け不可にする
+    const currentTile = this.getTilePosition();
+    const currentKey = `${currentTile.x},${currentTile.y}`;
+
+    // すり抜け可能リストを更新
+    const newPassable = new Set<string>();
+    for (const bombKey of this.passableBombs) {
+      // まだその爆弾の上にいるなら、すり抜け可能を維持
+      if (bombKey === currentKey && bombTiles.has(bombKey)) {
+        newPassable.add(bombKey);
+      }
+    }
+    this.passableBombs = newPassable;
+  }
+
+  /**
+   * 爆弾設置時にすり抜け可能として登録
+   */
+  registerPassableBomb(tileX: number, tileY: number): void {
+    this.passableBombs.add(`${tileX},${tileY}`);
   }
 
   /**
