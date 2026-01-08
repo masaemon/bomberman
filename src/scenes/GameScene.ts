@@ -55,6 +55,19 @@ export class GameScene extends Phaser.Scene {
 
     // 敵配置
     this.spawnEnemies();
+
+    // リスタートキーを設定
+    this.setupRestartKey();
+  }
+
+  /**
+   * リスタートキーを設定
+   */
+  private setupRestartKey(): void {
+    // Rキーでリスタート
+    this.input.keyboard?.on('keydown-R', () => {
+      this.restartGame();
+    });
   }
 
   /**
@@ -90,12 +103,22 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0, 0.5).setDepth(DEPTHS.UI + 1);
 
     // 操作説明（デバイスに応じて変更）
-    const controlText = isMobile() ? 'Touch left side to move' : 'Arrow Keys / WASD to move';
+    const controlText = isMobile() ? 'Tap to restart' : 'R: Restart';
     this.add.text(width - 10, hudHeight / 2, controlText, {
       fontSize: '14px',
       fontFamily: 'Arial, sans-serif',
       color: '#aaaaaa',
     }).setOrigin(1, 0.5).setDepth(DEPTHS.UI + 1);
+
+    // モバイル用リスタートボタン（HUD右側をタップ）
+    if (isMobile()) {
+      const restartZone = this.add.zone(width - 80, hudHeight / 2, 160, hudHeight);
+      restartZone.setOrigin(0.5, 0.5);
+      restartZone.setInteractive();
+      restartZone.on('pointerdown', () => {
+        this.restartGame();
+      });
+    }
   }
 
   update(_time: number, delta: number): void {
@@ -105,8 +128,14 @@ export class GameScene extends Phaser.Scene {
     // 危険なタイルを計算
     const dangerousTiles = this.calculateDangerousTiles();
 
+    // 爆弾位置を計算
+    const bombTiles = this.getBombTiles();
+
     // プレイヤー更新
     if (this.player) {
+      // プレイヤーに爆弾位置を伝える
+      this.player.setBombTiles(bombTiles);
+
       this.player.update();
 
       // 爆弾設置リクエストをチェック
@@ -118,13 +147,25 @@ export class GameScene extends Phaser.Scene {
       this.checkPlayerExplosion();
     }
 
-    // 敵更新
+    // ターゲットリストを作成（プレイヤー＋全敵）
     const playerTile = this.player.getTilePosition();
+    const allTargets: { x: number; y: number; isPlayer: boolean }[] = [
+      { ...playerTile, isPlayer: true }
+    ];
+    for (const e of this.enemies) {
+      if (e.isAlive) {
+        const tile = e.getTilePosition();
+        allTargets.push({ ...tile, isPlayer: false });
+      }
+    }
+
+    // 敵更新
     for (const enemy of this.enemies) {
       if (enemy.isAlive) {
-        // AIにプレイヤー位置と危険タイルを伝える
-        enemy.setPlayerPosition(playerTile);
+        // AIにターゲット、危険タイル、爆弾位置を伝える
+        enemy.setTargets(allTargets);
         enemy.setDangerousTiles(dangerousTiles);
+        enemy.setBombTiles(bombTiles);
         enemy.update(delta);
 
         // 敵の爆弾設置リクエストをチェック
@@ -194,6 +235,18 @@ export class GameScene extends Phaser.Scene {
     }
 
     return dangerous;
+  }
+
+  /**
+   * 爆弾のタイル位置を取得
+   */
+  private getBombTiles(): Set<string> {
+    const tiles = new Set<string>();
+    for (const bomb of this.bombs) {
+      const pos = bomb.getTilePosition();
+      tiles.add(`${pos.x},${pos.y}`);
+    }
+    return tiles;
   }
 
   /**
@@ -367,6 +420,9 @@ export class GameScene extends Phaser.Scene {
 
     this.bombs.push(bomb);
     this.player.onBombPlaced();
+
+    // プレイヤーがこの爆弾をすり抜けられるように登録
+    this.player.registerPassableBomb(tilePos.x, tilePos.y);
   }
 
   /**
@@ -401,6 +457,9 @@ export class GameScene extends Phaser.Scene {
 
     this.bombs.push(bomb);
     enemy.onBombPlaced();
+
+    // 敵がこの爆弾をすり抜けられるように登録
+    enemy.registerPassableBomb(tilePos.x, tilePos.y);
   }
 
   /**
