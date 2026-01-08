@@ -55,6 +55,19 @@ export class GameScene extends Phaser.Scene {
 
     // 敵配置
     this.spawnEnemies();
+
+    // リスタートキーを設定
+    this.setupRestartKey();
+  }
+
+  /**
+   * リスタートキーを設定
+   */
+  private setupRestartKey(): void {
+    // Rキーでリスタート
+    this.input.keyboard?.on('keydown-R', () => {
+      this.restartGame();
+    });
   }
 
   /**
@@ -90,12 +103,22 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0, 0.5).setDepth(DEPTHS.UI + 1);
 
     // 操作説明（デバイスに応じて変更）
-    const controlText = isMobile() ? 'Touch left side to move' : 'Arrow Keys / WASD to move';
+    const controlText = isMobile() ? 'Tap to restart' : 'R: Restart';
     this.add.text(width - 10, hudHeight / 2, controlText, {
       fontSize: '14px',
       fontFamily: 'Arial, sans-serif',
       color: '#aaaaaa',
     }).setOrigin(1, 0.5).setDepth(DEPTHS.UI + 1);
+
+    // モバイル用リスタートボタン（HUD右側をタップ）
+    if (isMobile()) {
+      const restartZone = this.add.zone(width - 80, hudHeight / 2, 160, hudHeight);
+      restartZone.setOrigin(0.5, 0.5);
+      restartZone.setInteractive();
+      restartZone.on('pointerdown', () => {
+        this.restartGame();
+      });
+    }
   }
 
   update(_time: number, delta: number): void {
